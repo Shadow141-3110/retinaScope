@@ -401,6 +401,10 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .demo-badge { display: inline-flex; min-height: 28px; align-items: center; padding: 0 10px; border: 1px solid var(--demo-bg); border-radius: 8px; background: var(--demo-bg); color: var(--demo-text); font: 700 10px var(--font-dm-mono), monospace; letter-spacing: .35px; white-space: nowrap; }
 .live-result-badge { display: inline-flex; min-height: 29px; align-items: center; gap: 9px; padding: 0 10px; border: 1px solid var(--teal-200); border-radius: 8px; background: var(--teal-50); color: var(--teal-700); font: 600 9px var(--font-dm-mono), monospace; letter-spacing: .8px; }
 .results-grid { display: grid; grid-template-columns: minmax(0, 1.06fr) minmax(300px, .94fr); gap: 17px; }
+.visual-results-stack { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 17px; min-width: 0; }
+.visual-result-card { min-width: 0; }
+.visual-image-stage { height: 290px; }
+.visual-image-stage > img { object-fit: contain; }
 .result-card { padding: 20px; border-radius: 16px; box-shadow: none; }
 .result-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 17px; }
 .result-card-heading h3 { margin: 5px 0 0; color: var(--ink); font: 800 17px var(--font-manrope), sans-serif; letter-spacing: -.35px; }
@@ -757,6 +761,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   .result-card { padding: 14px; }
   .result-card-heading h3 { font-size: 15px; }
   .comparison-stage { height: 240px; }
+  .visual-results-stack { grid-template-columns: 1fr; }
+  .visual-image-stage { height: 260px; }
   .range-control { grid-template-columns: 1fr; gap: 5px; }
   .prediction-main { padding: 13px; }
   .prediction-main strong { font-size: 20px; }
@@ -1669,4 +1675,214 @@ body {
   .capability-card:hover,
   .upload-panel:hover,
   .workflow-panel:hover { transform: none; }
+}
+
+/* RetinaScope results layout refinement: give the two clinical images room to breathe. */
+.results-panel {
+  width: min(1320px, 100%);
+  box-sizing: border-box;
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.visual-results-stack {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: clamp(16px, 2vw, 24px);
+  min-width: 0;
+}
+
+.visual-result-card {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+}
+
+.result-card-heading {
+  min-height: 54px;
+  align-items: flex-start;
+}
+
+.result-card-heading > div {
+  min-width: 0;
+}
+
+.result-card-heading > .step-badge {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Keep the entire clinical image visible: no stretching and no cropping. */
+.visual-image-stage {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 3 / 2;
+  max-height: 440px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-tint);
+}
+
+.visual-image-stage > img {
+  object-fit: contain !important;
+  object-position: center;
+}
+
+/* The backend Grad-CAM image is square (224 × 224), so give it a near-square
+   viewing area instead of forcing it into the original photograph's ratio. */
+.heatmap-image-stage {
+  height: clamp(300px, 32vw, 440px);
+  min-height: 300px;
+  aspect-ratio: auto;
+  max-height: 440px;
+}
+
+.heatmap-image-stage > img {
+  object-fit: contain !important;
+  object-position: center;
+}
+
+/* Put the classification summary beneath the image pair and use its full width. */
+.prediction-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  column-gap: clamp(18px, 3vw, 36px);
+  row-gap: 14px;
+}
+
+.prediction-card > .result-card-heading,
+.prediction-card > .prediction-stats,
+.prediction-card > .api-warning,
+.prediction-card > .demo-explainer {
+  grid-column: 1 / -1;
+}
+
+.prediction-card > .prediction-main {
+  grid-column: 1;
+}
+
+.prediction-card > .severity-meter {
+  grid-column: 2;
+  align-self: center;
+  margin-top: 0;
+}
+
+.prediction-card > .prediction-stats {
+  margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .results-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .visual-results-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .visual-results-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .visual-image-stage {
+    aspect-ratio: 3 / 2;
+    max-height: none;
+  }
+
+  .heatmap-image-stage {
+    height: min(86vw, 420px);
+    min-height: 280px;
+    aspect-ratio: auto;
+  }
+
+  .prediction-card {
+    display: block;
+  }
+
+  .prediction-card > .severity-meter {
+    margin-top: 22px;
+  }
+
+  .prediction-card > .prediction-stats {
+    margin-top: 18px;
+  }
+}
+
+@media (max-width: 420px) {
+  .visual-image-stage {
+    aspect-ratio: 4 / 3;
+  }
+
+  .heatmap-image-stage {
+    height: min(88vw, 360px);
+    min-height: 250px;
+  }
+
+  .result-card-heading {
+    min-height: 0;
+  }
+}
+
+/* Final results-image alignment: both cards use the exact same viewing frame. */
+.visual-results-stack {
+  align-items: stretch;
+}
+
+.visual-result-card {
+  height: 100%;
+  min-width: 0;
+}
+
+.visual-image-stage,
+.heatmap-image-stage {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: 440px;
+  aspect-ratio: 3 / 2 !important;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-tint);
+}
+
+.visual-image-stage > img,
+.heatmap-image-stage > img {
+  object-fit: contain !important;
+  object-position: center !important;
+}
+
+@media (max-width: 760px) {
+  .visual-image-stage,
+  .heatmap-image-stage {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none;
+    aspect-ratio: 3 / 2 !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .visual-image-stage,
+  .heatmap-image-stage {
+    aspect-ratio: 4 / 3 !important;
+  }
 }

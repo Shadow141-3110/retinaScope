@@ -107,8 +107,10 @@ export function normalizeScreeningResponse(payload: unknown): ScreeningResult {
     prediction.stage_label,
     prediction.label,
     prediction.severity,
+    prediction.predicted_grade,
     payload.stage_label,
     payload.label,
+    payload.predicted_grade,
   );
   const label = typeof labelValue === "string" && labelValue.trim() ? labelValue.trim() : GRADE_LABELS[grade];
   const confidenceValue = normalisePercent(firstDefined(prediction.confidence, payload.confidence));
@@ -125,9 +127,12 @@ export function normalizeScreeningResponse(payload: unknown): ScreeningResult {
     prediction.heatmap_url,
     prediction.heatmap,
     prediction.gradcam,
+    // The RetinaScope FastAPI response nests this raw PNG base64 value in `result`.
+    prediction.heatmap_base64,
     payload.heatmap_url,
     payload.heatmap,
     payload.gradcam,
+    payload.heatmap_base64,
   ));
   const inferenceValue = firstDefined(prediction.inference_ms, prediction.inferenceMs, payload.inference_ms, payload.inferenceMs);
   const inferenceParsed = typeof inferenceValue === "number" ? inferenceValue : Number(inferenceValue);

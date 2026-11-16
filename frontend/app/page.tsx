@@ -350,7 +350,6 @@ export default function Home() {
   const [resultMode, setResultMode] = useState<"live" | "demo" | null>(null);
   const [analysisError, setAnalysisError] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [comparePosition, setComparePosition] = useState(50);
   const [heatmapOpacity, setHeatmapOpacity] = useState(72);
   const [dashboardTab, setDashboardTab] = useState<"overview" | "districts">("overview");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -470,7 +469,6 @@ export default function Home() {
     setResult(null);
     setResultMode(null);
     setAnalysisError("");
-    setComparePosition(50);
     setHeatmapOpacity(72);
   };
 
@@ -528,7 +526,6 @@ export default function Home() {
     setAnalysisError("");
     setResult(illustrativeResult);
     setResultMode("demo");
-    setComparePosition(50);
   };
 
   const runLiveAnalysis = async () => {
@@ -572,8 +569,7 @@ export default function Home() {
       const normalised = normalizeScreeningResponse(body);
       setResult(normalised);
       setResultMode("live");
-      setComparePosition(50);
-    } catch (error) {
+      } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
       setAnalysisError(error instanceof Error ? error.message : "The screening request could not be completed.");
     } finally {
@@ -791,26 +787,44 @@ export default function Home() {
             </div>
 
             <div className="results-grid">
-              <div className="result-card comparison-card">
-                <div className="result-card-heading"><div><span className="panel-kicker">VISUAL EXPLANATION</span><h3>Original / attention view</h3></div><span className="step-badge">{resultMode === "demo" ? "DEMO OVERLAY" : "API IMAGE"}</span></div>
-                <div className="comparison-stage">
-                  <Image src={previewUrl} alt="Original uploaded fundus image" fill unoptimized sizes="(max-width: 900px) 90vw, 620px" />
-                  {result.heatmap ? (
-                    <Image src={result.heatmap} alt="Grad-CAM heatmap returned by the backend" fill unoptimized sizes="(max-width: 900px) 90vw, 620px" className="comparison-heatmap" style={{ opacity: heatmapOpacity / 100, clipPath: `inset(0 0 0 ${comparePosition}%)` }} />
-                  ) : resultMode === "demo" ? (
-                    <div className="demo-heatmap-overlay" role="img" aria-label="Illustrative heatmap overlay, not model output" style={{ opacity: heatmapOpacity / 100, clipPath: `inset(0 0 0 ${comparePosition}%)` }} />
-                  ) : (
-                    <div className="heatmap-unavailable">No heatmap image was included in the API response.</div>
-                  )}
-                  <span className="compare-label compare-label-before">ORIGINAL</span>
-                  <span className="compare-label compare-label-after">{result.heatmap ? "BACKEND HEATMAP" : "ILLUSTRATIVE VIEW"}</span>
-                  <span className="compare-divider" style={{ left: `${comparePosition}%` }} aria-hidden="true"><i /></span>
+              <div className="visual-results-stack">
+                <div className="result-card visual-result-card">
+                  <div className="result-card-heading">
+                    <div><span className="panel-kicker">UPLOADED IMAGE</span><h3>Original fundus image</h3></div>
+                    <span className="step-badge">ORIGINAL</span>
+                  </div>
+                  <div className="comparison-stage visual-image-stage">
+                    <Image src={previewUrl} alt="Original uploaded fundus image" fill unoptimized sizes="(max-width: 900px) 90vw, 420px" />
+                  </div>
                 </div>
-                <label className="range-control"><span>Before / after position</span><input type="range" min="0" max="100" value={comparePosition} onChange={(event) => setComparePosition(Number(event.target.value))} aria-label="Adjust original and heatmap comparison position" /></label>
-                <label className="range-control"><span>Heatmap opacity</span><input type="range" min="0" max="100" value={heatmapOpacity} onChange={(event) => setHeatmapOpacity(Number(event.target.value))} aria-label="Adjust heatmap opacity" /></label>
-                {resultMode === "demo" && <p className="demo-explainer">Illustrative heatmap mock-up only. It is not a Grad-CAM output and does not indicate a finding in this image.</p>}
-              </div>
 
+                <div className="result-card visual-result-card">
+                  <div className="result-card-heading">
+                    <div><span className="panel-kicker">VISUAL EXPLANATION</span><h3>Grad-CAM heatmap</h3></div>
+                    <span className="step-badge">{result.heatmap ? "BACKEND OUTPUT" : resultMode === "demo" ? "ILLUSTRATIVE DEMO" : "NOT PROVIDED"}</span>
+                  </div>
+                  <div className="comparison-stage visual-image-stage heatmap-image-stage">
+                    {result.heatmap ? (
+                      <Image
+                        src={result.heatmap}
+                        alt="Grad-CAM heatmap returned by the RetinaScope backend"
+                        fill
+                        unoptimized
+                        sizes="(max-width: 900px) 90vw, 420px"
+                        style={{ opacity: heatmapOpacity / 100 }}
+                      />
+                    ) : resultMode === "demo" ? (
+                      <div className="demo-heatmap-overlay" role="img" aria-label="Illustrative heatmap mock-up, not model output" style={{ opacity: heatmapOpacity / 100 }} />
+                    ) : (
+                      <div className="heatmap-unavailable">The backend did not include a Grad-CAM image in this response.</div>
+                    )}
+                  </div>
+                  {(result.heatmap || resultMode === "demo") && (
+                    <label className="range-control"><span>Heatmap opacity</span><input type="range" min="0" max="100" value={heatmapOpacity} onChange={(event) => setHeatmapOpacity(Number(event.target.value))} aria-label="Adjust heatmap opacity" /></label>
+                  )}
+                  {resultMode === "demo" && <p className="demo-explainer">Illustrative heatmap mock-up only. It is not a Grad-CAM output and does not indicate a finding in this image.</p>}
+                </div>
+              </div>
               <div className="result-card prediction-card">
                 <div className="result-card-heading"><div><span className="panel-kicker">FIVE-GRADE FRAMEWORK</span><h3>Screening classification</h3></div>{resultMode === "demo" && <DemoBadge />}</div>
                 <div className="prediction-main">
