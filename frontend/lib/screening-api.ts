@@ -37,8 +37,9 @@ function normalisePercent(value: unknown): number | null {
   if (typeof value !== "number" && typeof value !== "string") return null;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
-  const percent = parsed <= 1 ? parsed * 100 : parsed;
-  return Math.min(100, Math.max(0, percent));
+  // RetinaScope's backend serializes confidence and class probabilities as
+  // percentage values (0–100), not fractional probabilities (0–1).
+  return Math.min(100, Math.max(0, parsed));
 }
 
 function normaliseProbabilities(value: unknown): number[] | null {
