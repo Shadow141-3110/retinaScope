@@ -17,6 +17,18 @@ import {
 
 const PREDICT_URL = process.env.NEXT_PUBLIC_RETINASCOPE_PREDICT_URL?.trim() ?? "";
 const FILE_FIELD = process.env.NEXT_PUBLIC_RETINASCOPE_FILE_FIELD?.trim() || "file";
+const PREDICT_URL_NORMALIZED = PREDICT_URL.replace(/\/+$/, "");
+const DUAL_PREDICT_URL = PREDICT_URL_NORMALIZED.endsWith("/api/predict")
+  ? `${PREDICT_URL_NORMALIZED}/dual`
+  : "";
+
+type DualScreeningResult = {
+  right: ScreeningResult;
+  left: ScreeningResult;
+  gradeDifference: number;
+  sameGrade: boolean;
+  higherSeverityEye: string;
+};
 
 const navigation = [
   { id: "platform", label: "Platform" },
@@ -340,24 +352,36 @@ export default function Home() {
   const [darkMode, setDarkMode] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [activeSection, setActiveSection] = useState("home");
+  const [screeningMode, setScreeningMode] = useState<"single" | "both">("single");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [rightEyeFile, setRightEyeFile] = useState<File | null>(null);
+  const [leftEyeFile, setLeftEyeFile] = useState<File | null>(null);
+  const [rightPreviewUrl, setRightPreviewUrl] = useState<string | null>(null);
+  const [leftPreviewUrl, setLeftPreviewUrl] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [expandedStep, setExpandedStep] = useState(0);
   const [expandedGrade, setExpandedGrade] = useState(0);
   const [result, setResult] = useState<ScreeningResult | null>(null);
+  const [dualResult, setDualResult] = useState<DualScreeningResult | null>(null);
   const [resultMode, setResultMode] = useState<"live" | "demo" | null>(null);
   const [analysisError, setAnalysisError] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [heatmapOpacity, setHeatmapOpacity] = useState(72);
   const [dashboardTab, setDashboardTab] = useState<"overview" | "districts">("overview");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const rightEyeInputRef = useRef<HTMLInputElement>(null);
+  const leftEyeInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const mobileNavRef = useRef<HTMLElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const apiConfigured = Boolean(PREDICT_URL);
+  const dualApiConfigured = Boolean(DUAL_PREDICT_URL);
+  const canRunLive = screeningMode === "single"
+    ? Boolean(selectedFile)
+    : Boolean(rightEyeFile && leftEyeFile);
 
   useEffect(() => {
     let storedTheme: string | null = null;
@@ -376,6 +400,16 @@ export default function Home() {
     if (!previewUrl) return;
     return () => URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
+
+  useEffect(() => {
+    if (!rightPreviewUrl) return;
+    return () => URL.revokeObjectURL(rightPreviewUrl);
+  }, [rightPreviewUrl]);
+
+  useEffect(() => {
+    if (!leftPreviewUrl) return;
+    return () => URL.revokeObjectURL(leftPreviewUrl);
+  }, [leftPreviewUrl]);
 
   useEffect(() => {
     let frame = 0;
@@ -467,28 +501,94 @@ export default function Home() {
 
   const clearResult = () => {
     setResult(null);
+    setDualResult(null);
     setResultMode(null);
     setAnalysisError("");
     setHeatmapOpacity(72);
+  };
+
+  const validateImageFile = (file: File): string | null => {
+    const acceptedTypes = ["image/jpeg", "image/png"];
+    if (!acceptedTypes.includes(file.type)) {
+      return "Please choose a JPG or PNG retinal image. The existing backend does not accept WEBP.";
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      return "This image is larger than 20 MB. Choose a smaller file.";
+    }
+    return null;
+  };
+
+  const changeScreeningMode = (mode: "single" | "both") => {
+    if (mode === screeningMode) return;
+    abortRef.current?.abort();
+    setIsAnalyzing(false);
+    setScreeningMode(mode);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setRightEyeFile(null);
+    setLeftEyeFile(null);
+    setRightPreviewUrl(null);
+    setLeftPreviewUrl(null);
+    setUploadError("");
+    clearResult();
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (rightEyeInputRef.current) rightEyeInputRef.current.value = "";
+    if (leftEyeInputRef.current) leftEyeInputRef.current.value = "";
   };
 
   const selectFile = (file?: File) => {
     setUploadError("");
     setAnalysisError("");
     if (!file) return;
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setUploadError(validationError);
+      return;
+    }
     abortRef.current?.abort();
     setIsAnalyzing(false);
-    const acceptedTypes = ["image/jpeg", "image/png", "image/webp"];
-    if (!acceptedTypes.includes(file.type)) {
-      setUploadError("Please choose a JPG, PNG or WEBP retinal image.");
-      return;
-    }
-    if (file.size > 20 * 1024 * 1024) {
-      setUploadError("This image is larger than 20 MB. Choose a smaller file.");
-      return;
-    }
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
+    setRightEyeFile(null);
+    setLeftEyeFile(null);
+    setRightPreviewUrl(null);
+    setLeftPreviewUrl(null);
+    clearResult();
+  };
+
+  const selectEyeFile = (eye: "right" | "left", file?: File) => {
+    setUploadError("");
+    setAnalysisError("");
+    if (!file) return;
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setUploadError(validationError);
+      return;
+    }
+    abortRef.current?.abort();
+    setIsAnalyzing(false);
+    if (eye === "right") {
+      setRightEyeFile(file);
+      setRightPreviewUrl(URL.createObjectURL(file));
+    } else {
+      setLeftEyeFile(file);
+      setLeftPreviewUrl(URL.createObjectURL(file));
+    }
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    clearResult();
+  };
+
+  const removeEyeFile = (eye: "right" | "left") => {
+    if (eye === "right") {
+      setRightEyeFile(null);
+      setRightPreviewUrl(null);
+      if (rightEyeInputRef.current) rightEyeInputRef.current.value = "";
+    } else {
+      setLeftEyeFile(null);
+      setLeftPreviewUrl(null);
+      if (leftEyeInputRef.current) leftEyeInputRef.current.value = "";
+    }
     clearResult();
   };
 
@@ -497,10 +597,22 @@ export default function Home() {
     event.target.value = "";
   };
 
+  const handleRightEyeChange = (event: ChangeEvent<HTMLInputElement>) => {
+    selectEyeFile("right", event.target.files?.[0]);
+    event.target.value = "";
+  };
+
+  const handleLeftEyeChange = (event: ChangeEvent<HTMLInputElement>) => {
+    selectEyeFile("left", event.target.files?.[0]);
+    event.target.value = "";
+  };
+
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragging(false);
-    selectFile(event.dataTransfer.files?.[0]);
+    if (screeningMode === "single") {
+      selectFile(event.dataTransfer.files?.[0]);
+    }
   };
 
   const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
@@ -512,29 +624,44 @@ export default function Home() {
     abortRef.current?.abort();
     setSelectedFile(null);
     setPreviewUrl(null);
+    setRightEyeFile(null);
+    setLeftEyeFile(null);
+    setRightPreviewUrl(null);
+    setLeftPreviewUrl(null);
     setUploadError("");
     setIsAnalyzing(false);
     clearResult();
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (rightEyeInputRef.current) rightEyeInputRef.current.value = "";
+    if (leftEyeInputRef.current) leftEyeInputRef.current.value = "";
   };
 
   const showIllustrativeDemo = () => {
-    if (!selectedFile) {
-      setUploadError("Choose a retinal image first to preview the illustrative results layout.");
+    if (screeningMode !== "single" || !selectedFile) {
+      setUploadError("Choose one retinal image in Single Eye mode to preview the illustrative results layout.");
       return;
     }
     setAnalysisError("");
+    setDualResult(null);
     setResult(illustrativeResult);
     setResultMode("demo");
   };
 
   const runLiveAnalysis = async () => {
-    if (!selectedFile) {
-      setUploadError("Choose an image before starting a live screening request.");
+    if (screeningMode === "single" && !selectedFile) {
+      setUploadError("Choose a retinal image before starting a live screening request.");
       return;
     }
-    if (!apiConfigured) {
-      setAnalysisError("Live analysis is not connected yet. Configure NEXT_PUBLIC_RETINASCOPE_PREDICT_URL in the frontend environment after confirming the existing backend route and file-field name.");
+    if (screeningMode === "both" && (!rightEyeFile || !leftEyeFile)) {
+      setUploadError("Choose both the right-eye and left-eye retinal images before starting screening.");
+      return;
+    }
+    if (screeningMode === "single" && !apiConfigured) {
+      setAnalysisError("Live analysis is not connected. Check NEXT_PUBLIC_RETINASCOPE_PREDICT_URL in frontend/.env.local.");
+      return;
+    }
+    if (screeningMode === "both" && !dualApiConfigured) {
+      setAnalysisError("The dual-eye endpoint could not be derived from NEXT_PUBLIC_RETINASCOPE_PREDICT_URL. Set it to the existing /api/predict endpoint and restart Next.js.");
       return;
     }
 
@@ -547,8 +674,17 @@ export default function Home() {
 
     try {
       const formData = new FormData();
-      formData.append(FILE_FIELD, selectedFile);
-      const response = await fetch(PREDICT_URL, {
+      const requestUrl = screeningMode === "single" ? PREDICT_URL : DUAL_PREDICT_URL;
+
+      if (screeningMode === "single" && selectedFile) {
+        formData.append(FILE_FIELD, selectedFile);
+      } else if (screeningMode === "both" && rightEyeFile && leftEyeFile) {
+        // These field names match the existing FastAPI dual-eye endpoint.
+        formData.append("right_file", rightEyeFile);
+        formData.append("left_file", leftEyeFile);
+      }
+
+      const response = await fetch(requestUrl, {
         method: "POST",
         body: formData,
         signal: controller.signal,
@@ -562,14 +698,48 @@ export default function Home() {
       }
       if (!response.ok) {
         const message = typeof body === "object" && body !== null && "detail" in body
-          ? String((body as { detail: unknown }).detail)
+          ? JSON.stringify((body as { detail: unknown }).detail)
           : `The screening service returned HTTP ${response.status}.`;
         throw new Error(message);
       }
-      const normalised = normalizeScreeningResponse(body);
-      setResult(normalised);
+
+      if (screeningMode === "single") {
+        const normalised = normalizeScreeningResponse(body);
+        setResult(normalised);
+        setDualResult(null);
+      } else {
+        if (typeof body !== "object" || body === null || !("right_eye" in body) || !("left_eye" in body)) {
+          throw new Error("The dual-eye API response did not contain both right_eye and left_eye results.");
+        }
+        const dualPayload = body as {
+          right_eye: unknown;
+          left_eye: unknown;
+          comparison?: {
+            grade_difference?: number;
+            same_grade?: boolean;
+            higher_severity_eye?: string;
+          };
+        };
+        const right = normalizeScreeningResponse(dualPayload.right_eye);
+        const left = normalizeScreeningResponse(dualPayload.left_eye);
+        const comparison = dualPayload.comparison;
+        setResult(null);
+        setDualResult({
+          right,
+          left,
+          gradeDifference: typeof comparison?.grade_difference === "number"
+            ? comparison.grade_difference
+            : Math.abs(right.grade - left.grade),
+          sameGrade: typeof comparison?.same_grade === "boolean"
+            ? comparison.same_grade
+            : right.grade === left.grade,
+          higherSeverityEye: comparison?.higher_severity_eye || (
+            right.grade > left.grade ? "Right Eye" : left.grade > right.grade ? "Left Eye" : "Same"
+          ),
+        });
+      }
       setResultMode("live");
-      } catch (error) {
+    } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
       setAnalysisError(error instanceof Error ? error.message : "The screening request could not be completed.");
     } finally {
@@ -580,10 +750,10 @@ export default function Home() {
   const activeGrade = useMemo(() => grades.find((grade) => grade.id === expandedGrade) ?? grades[0], [expandedGrade]);
 
   useEffect(() => {
-    if (result) {
+    if (result || dualResult) {
       window.requestAnimationFrame(() => document.getElementById("results-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     }
-  }, [result]);
+  }, [result, dualResult]);
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -682,60 +852,149 @@ export default function Home() {
       <section className="workspace-section" id="workspace">
         <div className="section-heading">
           <div><span className="section-index">01 / SCREENING WORKSPACE</span><h2>Start with a<br /><em>retinal image.</em></h2></div>
-          <p>Choose a fundus photograph to create a private browser preview. You can explore a clearly labelled demo layout or connect the existing model endpoint when its route and request contract are configured.</p>
+          <p>Choose Single Eye to screen one photograph, or Both Eyes to upload separate right- and left-eye images for a combined screening request.</p>
         </div>
 
         <div className="workspace-grid">
           <section className={`upload-panel ${dragging ? "upload-panel-dragging" : ""}`} aria-labelledby="upload-heading">
             <div className="panel-header">
-              <div><span className="panel-kicker">IMAGE INTAKE</span><h3 id="upload-heading">Upload a fundus image</h3></div>
+              <div><span className="panel-kicker">IMAGE INTAKE</span><h3 id="upload-heading">{screeningMode === "single" ? "Upload a fundus image" : "Upload both fundus images"}</h3></div>
               <span className="step-badge">STEP 01</span>
             </div>
 
-            {previewUrl ? (
-              <div className="preview-state">
-                <div className="preview-image">
-                  <Image src={previewUrl} alt="Selected retinal image preview" fill unoptimized sizes="(max-width: 800px) 90vw, 620px" />
-                  <span className="preview-image-label">LOCAL PREVIEW · VISUAL EFFECT</span>
-                </div>
-                <div className="preview-details">
-                  <span className="file-icon"><Icon name="file" size={19} /></span>
-                  <div className="file-copy"><strong>{selectedFile?.name}</strong><small>{selectedFile ? `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB · Browser preview` : "Browser preview"}</small></div>
-                  <button className="icon-button" type="button" onClick={resetUpload} aria-label="Remove selected image"><Icon name="close" size={18} /></button>
-                </div>
-                <div className="preview-notice"><Icon name="lock" size={16} /><span>Image stays in this browser preview until you choose live analysis.</span></div>
+            <div className="screening-mode-control">
+              <span className="panel-kicker">SCREENING MODE</span>
+              <div className="screening-mode-options" role="group" aria-label="Screening mode">
+                <button
+                  type="button"
+                  className={screeningMode === "single" ? "screening-mode-option screening-mode-active" : "screening-mode-option"}
+                  aria-pressed={screeningMode === "single"}
+                  onClick={() => changeScreeningMode("single")}
+                >
+                  Single Eye
+                </button>
+                <button
+                  type="button"
+                  className={screeningMode === "both" ? "screening-mode-option screening-mode-active" : "screening-mode-option"}
+                  aria-pressed={screeningMode === "both"}
+                  onClick={() => changeScreeningMode("both")}
+                >
+                  Both Eyes
+                </button>
               </div>
+              <p>{screeningMode === "single"
+                ? "Upload one retinal fundus photograph for single-eye screening."
+                : "Upload separate right-eye and left-eye photographs. Both images are submitted together for dual-eye screening."}</p>
+            </div>
+
+            {screeningMode === "single" ? (
+              previewUrl ? (
+                <div className="preview-state">
+                  <div className="preview-image">
+                    <Image src={previewUrl} alt="Selected retinal image preview" fill unoptimized sizes="(max-width: 800px) 90vw, 620px" />
+                    <span className="preview-image-label">LOCAL PREVIEW · VISUAL EFFECT</span>
+                  </div>
+                  <div className="preview-details">
+                    <span className="file-icon"><Icon name="file" size={19} /></span>
+                    <div className="file-copy"><strong>{selectedFile?.name}</strong><small>{selectedFile ? `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB · Browser preview` : "Browser preview"}</small></div>
+                    <button className="icon-button" type="button" onClick={resetUpload} aria-label="Remove selected image"><Icon name="close" size={18} /></button>
+                  </div>
+                  <div className="preview-notice"><Icon name="lock" size={16} /><span>Image stays in this browser preview until you choose live analysis.</span></div>
+                </div>
+              ) : (
+                <div className={`drop-zone ${dragging ? "drop-zone-active" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={handleDragLeave} onDrop={handleDrop} aria-label="Fundus image drop zone">
+                  <div className="upload-symbol"><Icon name="upload" size={27} /></div>
+                  <strong>Drop your image here</strong>
+                  <span>or browse files from your device</span>
+                  <label className="button button-primary choose-button" htmlFor="retina-file-input">Choose image <Icon name="arrow" size={17} /></label>
+                  <input ref={fileInputRef} className="visually-hidden" id="retina-file-input" type="file" accept="image/jpeg,image/png" onChange={handleFileChange} />
+                  <small>JPG, JPEG or PNG · Maximum file size 20 MB</small>
+                </div>
+              )
             ) : (
-              <div className={`drop-zone ${dragging ? "drop-zone-active" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={handleDragLeave} onDrop={handleDrop} aria-label="Fundus image drop zone">
-                <div className="upload-symbol"><Icon name="upload" size={27} /></div>
-                <strong>Drop your image here</strong>
-                <span>or browse files from your device</span>
-                <label className="button button-primary choose-button" htmlFor="retina-file-input">Choose image <Icon name="arrow" size={17} /></label>
-                <input ref={fileInputRef} className="visually-hidden" id="retina-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} />
-                <small>JPG, PNG or WEBP · Maximum file size 20 MB</small>
+              <div className="dual-upload-grid">
+                <div className="dual-upload-card">
+                  <div className="dual-upload-heading">
+                    <div><span className="panel-kicker">RIGHT EYE</span><strong>Right-eye fundus image</strong></div>
+                    <span className="step-badge">{rightEyeFile ? "READY" : "REQUIRED"}</span>
+                  </div>
+                  {rightPreviewUrl ? (
+                    <>
+                      <div className="dual-preview-image">
+                        <Image src={rightPreviewUrl} alt="Right-eye fundus image preview" fill unoptimized sizes="(max-width: 800px) 90vw, 420px" />
+                      </div>
+                      <div className="dual-file-row">
+                        <span>{rightEyeFile?.name}</span>
+                        <button className="icon-button" type="button" onClick={() => removeEyeFile("right")} aria-label="Remove right-eye image"><Icon name="close" size={17} /></button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="dual-drop-zone">
+                      <Icon name="upload" size={25} />
+                      <span>Upload the right-eye image</span>
+                      <label className="button button-secondary choose-button" htmlFor="right-eye-file-input">Choose right eye</label>
+                      <input ref={rightEyeInputRef} className="visually-hidden" id="right-eye-file-input" type="file" accept="image/jpeg,image/png" onChange={handleRightEyeChange} />
+                    </div>
+                  )}
+                </div>
+
+                <div className="dual-upload-card">
+                  <div className="dual-upload-heading">
+                    <div><span className="panel-kicker">LEFT EYE</span><strong>Left-eye fundus image</strong></div>
+                    <span className="step-badge">{leftEyeFile ? "READY" : "REQUIRED"}</span>
+                  </div>
+                  {leftPreviewUrl ? (
+                    <>
+                      <div className="dual-preview-image">
+                        <Image src={leftPreviewUrl} alt="Left-eye fundus image preview" fill unoptimized sizes="(max-width: 800px) 90vw, 420px" />
+                      </div>
+                      <div className="dual-file-row">
+                        <span>{leftEyeFile?.name}</span>
+                        <button className="icon-button" type="button" onClick={() => removeEyeFile("left")} aria-label="Remove left-eye image"><Icon name="close" size={17} /></button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="dual-drop-zone">
+                      <Icon name="upload" size={25} />
+                      <span>Upload the left-eye image</span>
+                      <label className="button button-secondary choose-button" htmlFor="left-eye-file-input">Choose left eye</label>
+                      <input ref={leftEyeInputRef} className="visually-hidden" id="left-eye-file-input" type="file" accept="image/jpeg,image/png" onChange={handleLeftEyeChange} />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
             {uploadError && <p className="upload-error" role="alert"><Icon name="info" size={16} />{uploadError}</p>}
 
-            {selectedFile && (
+            {canRunLive && (
               <div className="analysis-actions">
-                <button className="button button-primary" type="button" onClick={runLiveAnalysis} disabled={!apiConfigured || isAnalyzing} title={!apiConfigured ? "Configure the existing backend prediction URL to enable live analysis" : "Send this image to the configured backend"}>
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={runLiveAnalysis}
+                  disabled={isAnalyzing || (screeningMode === "single" ? !apiConfigured : !dualApiConfigured)}
+                  title={screeningMode === "single" ? "Send this image to the configured single-eye endpoint" : "Send both images to the existing dual-eye endpoint"}
+                >
                   {isAnalyzing ? <span className="button-spinner" aria-hidden="true" /> : <Icon name="activity" size={17} />}
-                  {isAnalyzing ? "Waiting for model…" : "Run live analysis"}
+                  {isAnalyzing ? "Analysing images…" : screeningMode === "single" ? "Run live analysis" : "Analyse both eyes"}
                 </button>
-                <button className="button button-secondary" type="button" onClick={showIllustrativeDemo} disabled={isAnalyzing}>View illustrative demo</button>
+                {screeningMode === "single" && (
+                  <button className="button button-secondary" type="button" onClick={showIllustrativeDemo} disabled={isAnalyzing}>
+                    View illustrative demo
+                  </button>
+                )}
               </div>
             )}
 
-            {!apiConfigured && (
-              <div className="api-status"><span className="status-indicator" /><div><strong>Live model connection not configured</strong><small>The image remains local. Add the existing prediction endpoint to the frontend environment to enable live analysis.</small></div></div>
+            {((screeningMode === "single" && !apiConfigured) || (screeningMode === "both" && !dualApiConfigured)) && (
+              <div className="api-status"><span className="status-indicator" /><div><strong>Live model connection not configured</strong><small>Check NEXT_PUBLIC_RETINASCOPE_PREDICT_URL in frontend/.env.local and restart the Next.js server.</small></div></div>
             )}
             {analysisError && <p className="analysis-error" role="alert"><Icon name="info" size={16} />{analysisError}</p>}
 
             <div className="upload-footer">
               <span><Icon name="shield" size={15} /> Local preview · live analysis sends the file</span>
-              <span>JPG · PNG · WEBP</span>
+              <span>JPG · JPEG · PNG</span>
             </div>
           </section>
 
@@ -779,7 +1038,111 @@ export default function Home() {
           </div>
         )}
 
-        {result && previewUrl && (
+        {dualResult && rightPreviewUrl && leftPreviewUrl && (
+          <section className="results-panel dual-results-panel" id="results-panel" aria-labelledby="dual-results-heading">
+            <div className="results-header">
+              <div>
+                <span className="section-index">02 / DUAL-EYE SCREENING OUTPUT</span>
+                <h2 id="dual-results-heading">Both-eye result overview</h2>
+                <p>Separate right-eye and left-eye predictions returned by the screening service. Results require qualified professional review.</p>
+              </div>
+              <span className="live-result-badge"><span className="status-indicator" /> BACKEND RESPONSE</span>
+            </div>
+
+            <div className="dual-comparison-summary">
+              <div>
+                <span className="micro-label">GRADE DIFFERENCE</span>
+                <strong>{dualResult.gradeDifference}</strong>
+                <small>{dualResult.sameGrade ? "Both eyes returned the same grade." : "Difference between right-eye and left-eye grades."}</small>
+              </div>
+              <div>
+                <span className="micro-label">HIGHER SEVERITY</span>
+                <strong>{dualResult.higherSeverityEye === "Same" ? "Same grade" : dualResult.higherSeverityEye}</strong>
+                <small>Based on the returned grade values.</small>
+              </div>
+            </div>
+
+            <div className="dual-results-grid">
+              {([
+                { key: "right", label: "Right Eye", eyeResult: dualResult.right, imageUrl: rightPreviewUrl },
+                { key: "left", label: "Left Eye", eyeResult: dualResult.left, imageUrl: leftPreviewUrl },
+              ]).map((eye) => (
+                <article className="result-card dual-eye-result-card" key={eye.key}>
+                  <div className="result-card-heading">
+                    <div><span className="panel-kicker">{eye.label.toUpperCase()}</span><h3>{eye.label} screening result</h3></div>
+                    <span className="step-badge">LIVE RESULT</span>
+                  </div>
+
+                  <div className="dual-eye-images">
+                    <div className="dual-eye-image-card">
+                      <span className="micro-label">ORIGINAL FUNDUS</span>
+                      <div className="dual-result-image-frame">
+                        <Image src={eye.imageUrl} alt={`${eye.label} original fundus image`} fill unoptimized sizes="(max-width: 900px) 90vw, 420px" />
+                      </div>
+                    </div>
+                    <div className="dual-eye-image-card">
+                      <span className="micro-label">GRAD-CAM HEATMAP</span>
+                      <div className="dual-result-image-frame">
+                        {eye.eyeResult.heatmap ? (
+                          <Image
+                            src={eye.eyeResult.heatmap}
+                            alt={`${eye.label} Grad-CAM heatmap`}
+                            fill
+                            unoptimized
+                            sizes="(max-width: 900px) 90vw, 420px"
+                            style={{ opacity: heatmapOpacity / 100 }}
+                          />
+                        ) : (
+                          <div className="heatmap-unavailable">No Grad-CAM image was returned for this eye.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="dual-eye-grade-row">
+                    <span className={`grade-dot ${gradeClasses[eye.eyeResult.grade]}`} />
+                    <div>
+                      <span className="micro-label">RETURNED GRADE</span>
+                      <strong>{eye.eyeResult.label || gradeNames[eye.eyeResult.grade]}</strong>
+                      <small>Grade {eye.eyeResult.grade} · {grades[eye.eyeResult.grade].longName}</small>
+                    </div>
+                    <span className={`prediction-grade-pill ${gradeClasses[eye.eyeResult.grade]}`}>GRADE {eye.eyeResult.grade}</span>
+                  </div>
+
+                  <div className="prediction-stats dual-eye-stats">
+                    <div><span>Confidence</span><strong>{typeof eye.eyeResult.confidence === "number" ? `${Math.round(eye.eyeResult.confidence)}%` : "Not supplied"}</strong></div>
+                    <div><span>Inference time</span><strong>{typeof eye.eyeResult.inferenceMs === "number" ? `${Math.round(eye.eyeResult.inferenceMs)} ms` : "Not supplied"}</strong></div>
+                  </div>
+
+                  {eye.eyeResult.probabilities && (
+                    <div className="dual-probability-list">
+                      {eye.eyeResult.probabilities.map((value, index) => (
+                        <div className="confidence-row" key={`${eye.key}-${gradeNames[index]}`}>
+                          <span className="confidence-name">{gradeNames[index]}</span>
+                          <div className="confidence-track"><span className={`confidence-fill ${index === eye.eyeResult.grade ? gradeClasses[index] : "confidence-fill-muted"}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} /></div>
+                          <strong>{Math.round(value)}%</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {eye.eyeResult.warning && <p className="api-warning"><Icon name="info" size={16} />{eye.eyeResult.warning}</p>}
+                </article>
+              ))}
+            </div>
+
+            <label className="range-control dual-heatmap-opacity">
+              <span>Heatmap opacity</span>
+              <input type="range" min="0" max="100" value={heatmapOpacity} onChange={(event) => setHeatmapOpacity(Number(event.target.value))} aria-label="Adjust both Grad-CAM heatmap opacities" />
+            </label>
+
+            <p className="clinical-caveat">These model outputs are research screening aids, not standalone clinical diagnoses. A qualified eye-care professional should review both images and results.</p>
+            <div className="results-actions">
+              <button className="button button-secondary" type="button" onClick={resetUpload}><Icon name="refresh" size={16} /> Upload another set</button>
+            </div>
+          </section>
+        )}
+
+        {screeningMode === "single" && result && previewUrl && (
           <section className="results-panel" id="results-panel" aria-labelledby="results-heading">
             <div className="results-header">
               <div><span className="section-index">02 / SCREENING OUTPUT</span><h2 id="results-heading">Result overview</h2><p>{resultMode === "demo" ? "This sample demonstrates the results layout only; it was not generated from the uploaded image." : "Values below were returned by the configured screening service. They require qualified professional review."}</p></div>
