@@ -2152,3 +2152,168 @@ body {
     flex-wrap: wrap;
   }
 }
+
+
+/* ==========================================================
+   DISTRICT RESOURCE PLANNING — PROJECT DATA + CHOROPLETH
+   ========================================================== */
+.planning-source-badge,
+.planning-row-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 29px;
+  padding: 0 11px;
+  border: 1px solid var(--teal-200);
+  border-radius: 999px;
+  background: var(--teal-50);
+  color: var(--teal-700);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+.planning-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin: 20px 0 16px;
+}
+.planning-filter-label { display: grid; gap: 8px; color: var(--ink); font-size: 13px; font-weight: 800; }
+.planning-filter-select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--surface-border, var(--teal-200));
+  border-radius: 10px;
+  background: var(--card-surface, #fff);
+  color: var(--ink);
+  font: 600 14px var(--font-manrope), sans-serif;
+  outline-offset: 2px;
+}
+.planning-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.planning-kpi-grid .dashboard-stat { min-width: 0; min-height: 112px; }
+.planning-kpi-grid .dashboard-stat strong { overflow-wrap: anywhere; font-size: clamp(20px, 2vw, 28px); }
+.planning-panel-card {
+  margin-top: 18px;
+  padding: clamp(15px, 2vw, 22px);
+  border: 1px solid var(--surface-border, var(--teal-100));
+  border-radius: 15px;
+  background: var(--card-surface, #fff);
+  box-shadow: 0 10px 32px rgba(18, 46, 58, .045);
+}
+.planning-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.planning-panel-heading h4 { margin: 5px 0 0; color: var(--ink); font: 800 18px var(--font-manrope), sans-serif; }
+.planning-table-scroll { max-height: 480px; overflow: auto; border: 1px solid var(--surface-border, var(--teal-100)); border-radius: 10px; }
+.planning-table { width: 100%; min-width: 790px; border-collapse: separate; border-spacing: 0; color: var(--ink); font-size: 12.5px; }
+.planning-table th,
+.planning-table td { padding: 11px 12px; border-bottom: 1px solid var(--surface-border, var(--teal-100)); text-align: left; white-space: nowrap; }
+.planning-table th { position: sticky; top: 0; z-index: 2; background: var(--surface-tint, var(--teal-50)); color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .045em; }
+.planning-table tbody tr { background: var(--card-surface, #fff); transition: background .16s ease; cursor: pointer; }
+.planning-table tbody tr:hover,
+.planning-table tbody tr.planning-row-selected { background: color-mix(in srgb, var(--teal-100) 58%, var(--card-surface)); }
+.planning-table tbody tr:last-child td { border-bottom: 0; }
+.planning-number-cell { text-align: right !important; font-variant-numeric: tabular-nums; }
+.planning-priority-pill { display: inline-flex; min-width: 78px; justify-content: center; padding: 4px 9px; border: 1px solid currentColor; border-radius: 999px; font-size: 10.5px; font-weight: 800; }
+.planning-priority-pill.priority-low { color: #07845f; background: rgba(0, 169, 121, .09); }
+.planning-priority-pill.priority-moderate { color: #9a711e; background: rgba(201, 154, 50, .12); }
+.planning-priority-pill.priority-high { color: #bb5a16; background: rgba(226, 123, 34, .11); }
+.planning-priority-pill.priority-critical { color: #b63845; background: rgba(207, 74, 84, .10); }
+.planning-empty-result { padding: 24px 10px; color: var(--muted); text-align: center; }
+.planning-map-card { overflow: hidden; }
+.planning-map-heading { align-items: flex-start; }
+.planning-map-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 14px; padding-top: 3px; }
+.planning-map-legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.planning-map-legend i { width: 10px; height: 10px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(15, 46, 58, .12); }
+.planning-map-viewport {
+  width: 100%;
+  height: clamp(380px, 54vw, 610px);
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid var(--surface-border, var(--teal-100));
+  border-radius: 12px;
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(20, 184, 166, .075), transparent 65%),
+    var(--surface-tint, #f4f7f3);
+}
+.planning-map-svg { display: block; width: 100%; height: 100%; }
+.planning-map-district { cursor: pointer; outline: none; transition: fill-opacity .15s ease, filter .15s ease, stroke-width .15s ease; }
+.planning-map-district:hover,
+.planning-map-district:focus-visible { fill-opacity: 1 !important; stroke: var(--ink); stroke-width: 1.2 !important; filter: drop-shadow(0 1px 2px rgba(15, 46, 58, .28)); }
+.planning-map-district-selected { stroke: var(--ink); stroke-width: 1.4 !important; }
+.planning-map-footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 11px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.planning-map-unavailable { display: grid; min-height: 250px; place-content: center; justify-items: center; gap: 8px; padding: 24px; color: var(--muted); text-align: center; }
+.planning-map-unavailable strong { color: var(--ink); }
+.planning-map-unavailable p { max-width: 540px; margin: 0; font-size: 13px; line-height: 1.6; }
+.planning-method-note { margin: 14px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.planning-error-state code { color: var(--teal-700); font-size: 12px; }
+:root[data-theme="dark"] .planning-filter-select { background: var(--card-surface); color: var(--ink); }
+:root[data-theme="dark"] .planning-map-viewport { background: #102b30; }
+:root[data-theme="dark"] .planning-table th { background: #17343a; color: #c3d8d2; }
+:root[data-theme="dark"] .planning-table tbody tr:hover,
+:root[data-theme="dark"] .planning-table tbody tr.planning-row-selected { background: #183b3c; }
+:root[data-theme="dark"] .planning-source-badge,
+:root[data-theme="dark"] .planning-row-count { background: #183b3c; border-color: #315a58; color: #a8e1d4; }
+@media (max-width: 900px) {
+  .planning-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .planning-map-heading { flex-direction: column; }
+  .planning-map-legend { justify-content: flex-start; }
+}
+@media (max-width: 620px) {
+  .planning-filter-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .planning-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .planning-kpi-grid .dashboard-stat { min-height: 100px; padding: 12px; }
+  .planning-kpi-grid .dashboard-stat strong { font-size: 20px; }
+  .planning-panel-heading { align-items: flex-start; }
+  .planning-panel-heading h4 { font-size: 16px; }
+  .planning-map-viewport { height: 380px; min-height: 320px; }
+  .planning-map-footer { flex-direction: column; }
+  .planning-row-count { font-size: 10px; }
+}
+
+
+/* District cartography: visual treatment aligned with the original Streamlit map. */
+.planning-map-card {
+  background: linear-gradient(155deg, #071321 0%, #030914 100%) !important;
+  border: 1px solid rgba(0, 240, 255, 0.28) !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+.planning-map-card .panel-kicker { color: #00f0ff !important; }
+.planning-map-card .planning-panel-heading h4 { color: #f1f5f9 !important; }
+.planning-map-card .planning-map-legend span { color: #cbd5e1 !important; }
+.planning-map-card .planning-map-legend i {
+  width: 12px; height: 12px; border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+.planning-map-card .planning-row-count {
+  color: #a9c3cf; background: rgba(0, 240, 255, 0.07);
+  border-color: rgba(0, 240, 255, 0.2);
+}
+.planning-map-card .planning-map-viewport {
+  height: 520px; min-height: 420px;
+  background:
+    radial-gradient(ellipse at 48% 42%, rgba(0, 240, 255, 0.09), transparent 62%),
+    linear-gradient(160deg, #06111f 0%, #020812 100%) !important;
+  border: 1px solid rgba(0, 240, 255, 0.24) !important;
+  border-radius: 2px !important;
+}
+.planning-map-card .planning-map-svg { width: 100%; height: 100%; }
+.planning-map-card .planning-map-district {
+  stroke: #263b4b; stroke-width: 0.42;
+  transition: fill-opacity .14s ease, filter .14s ease, stroke-width .14s ease;
+}
+.planning-map-card .planning-map-district:hover,
+.planning-map-card .planning-map-district:focus-visible {
+  stroke: #ffffff !important; stroke-width: 1.15 !important;
+  filter: drop-shadow(0 0 3px rgba(0, 240, 255, .55));
+}
+.planning-map-card .planning-map-district-selected {
+  stroke: #ffffff !important; stroke-width: 1.4 !important;
+  filter: drop-shadow(0 0 4px rgba(0, 240, 255, .65));
+}
+.planning-map-card .planning-map-footer { color: #a9bac8 !important; }
+.planning-map-card .planning-map-unavailable { color: #a9bac8 !important; }
+.planning-map-card .planning-map-unavailable strong { color: #f1f5f9 !important; }
+@media (max-width: 620px) {
+  .planning-map-card .planning-map-viewport { height: 380px; min-height: 320px; }
+}

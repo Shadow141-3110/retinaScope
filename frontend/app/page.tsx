@@ -30,6 +30,58 @@ type DualScreeningResult = {
   higherSeverityEye: string;
 };
 
+type PlanningRecord = {
+  state: string;
+  district: string;
+  district_code: number;
+  population_2011: number;
+  literacy_rate_pct: number;
+  estimated_diabetic_population: number;
+  estimated_annual_screening_demand: number;
+  estimated_screening_capacity: number;
+  capacity_gap: number;
+  priority_score: number;
+  priority: string;
+  screening_capacity_utilization_pct: number;
+};
+
+type PlanningMapFeature = {
+  id: string;
+  state: string;
+  district: string;
+  priority: string;
+  priorityScore: number;
+  demand: number;
+  capacity: number;
+  capacityGap: number;
+  // SVG-space bounds: [min longitude, min negative latitude, width, height].
+  bbox: [number, number, number, number];
+  path: string;
+};
+
+type PlanningAsset = {
+  source: string;
+  method: string;
+  records: PlanningRecord[];
+  mapFeatures: PlanningMapFeature[];
+  coverage: {
+    planningRecords: number;
+    mappedDistricts: number;
+    unmappedRecords: number;
+  };
+};
+
+const PLANNING_PRIORITY_OPTIONS = ["All Priorities", "Critical", "High", "Moderate", "Low"];
+const PLANNING_PRIORITY_COLOURS: Record<string, string> = {
+  // Match the priority palette used by the original Streamlit choropleth.
+  Low: "#00f59b",
+  Moderate: "#e5c158",
+  High: "#ff8c00",
+  Critical: "#ff3b5c",
+};
+const planningNumberFormat = new Intl.NumberFormat("en-IN");
+const formatPlanningNumber = (value: number) => planningNumberFormat.format(Math.round(value || 0));
+
 const navigation = [
   { id: "platform", label: "Platform" },
   { id: "workflow", label: "How it works" },
@@ -369,13 +421,87 @@ export default function Home() {
   const [analysisError, setAnalysisError] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [heatmapOpacity, setHeatmapOpacity] = useState(72);
-  const [dashboardTab, setDashboardTab] = useState<"overview" | "districts">("overview");
+  const [planningAsset, setPlanningAsset] = useState<PlanningAsset | null>(null);
+  const [planningLoading, setPlanningLoading] = useState(false);
+  const [planningError, setPlanningError] = useState("");
+  const [selectedPlanningState, setSelectedPlanningState] = useState("All States");
+  const [selectedPlanningPriority, setSelectedPlanningPriority] = useState("All Priorities");
+  const [selectedPlanningDistrict, setSelectedPlanningDistrict] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rightEyeInputRef = useRef<HTMLInputElement>(null);
   const leftEyeInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const mobileNavRef = useRef<HTMLElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPlanningLoading(true);
+    fetch("/data/district-planning.json")
+      .then((response) => {
+        if (!response.ok) throw new Error(`Planning data request failed (${response.status}).`);
+        return response.json() as Promise<PlanningAsset>;
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setPlanningAsset(data);
+          setPlanningError("");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setPlanningError(error instanceof Error ? error.message : "Unable to load district planning data.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPlanningLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const planningStates = useMemo(() => {
+    const states = planningAsset?.records.map((row) => row.state) ?? [];
+    return Array.from(new Set(states)).sort((a, b) => a.localeCompare(b));
+  }, [planningAsset]);
+
+  const planningRows = useMemo(() => {
+    const rows = planningAsset?.records ?? [];
+    return rows
+      .filter((row) => selectedPlanningState === "All States" || row.state === selectedPlanningState)
+      .filter((row) => selectedPlanningPriority === "All Priorities" || row.priority === selectedPlanningPriority)
+      .slice()
+      .sort((a, b) => b.capacity_gap - a.capacity_gap || a.district.localeCompare(b.district));
+  }, [planningAsset, selectedPlanningState, selectedPlanningPriority]);
+
+  const planningStateRows = useMemo(() => {
+    const rows = planningAsset?.records ?? [];
+    return rows.filter((row) => selectedPlanningState === "All States" || row.state === selectedPlanningState);
+  }, [planningAsset, selectedPlanningState]);
+
+  const planningMapFeatures = useMemo(() => {
+    const features = planningAsset?.mapFeatures ?? [];
+    return features
+      .filter((feature) => selectedPlanningState === "All States" || feature.state === selectedPlanningState)
+      .filter((feature) => selectedPlanningPriority === "All Priorities" || feature.priority === selectedPlanningPriority);
+  }, [planningAsset, selectedPlanningState, selectedPlanningPriority]);
+
+  const planningMapViewBox = useMemo(() => {
+    if (!planningMapFeatures.length) return "0 0 1 1";
+    const minX = Math.min(...planningMapFeatures.map((feature) => feature.bbox[0]));
+    const minY = Math.min(...planningMapFeatures.map((feature) => feature.bbox[1]));
+    const maxX = Math.max(...planningMapFeatures.map((feature) => feature.bbox[0] + feature.bbox[2]));
+    const maxY = Math.max(...planningMapFeatures.map((feature) => feature.bbox[1] + feature.bbox[3]));
+    const pad = Math.max(maxX - minX, maxY - minY) * 0.035;
+    return `${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}`;
+  }, [planningMapFeatures]);
+
+  const planningMetrics = useMemo(() => ({
+    districts: planningRows.length,
+    demand: planningRows.reduce((total, row) => total + row.estimated_annual_screening_demand, 0),
+    capacity: planningRows.reduce((total, row) => total + row.estimated_screening_capacity, 0),
+    gap: planningRows.reduce((total, row) => total + row.capacity_gap, 0),
+    highCritical: planningRows.filter((row) => row.priority === "High" || row.priority === "Critical").length,
+  }), [planningRows]);
 
   const apiConfigured = Boolean(PREDICT_URL);
   const dualApiConfigured = Boolean(DUAL_PREDICT_URL);
@@ -1344,41 +1470,117 @@ export default function Home() {
 
       <section className="dashboard-preview-section" aria-labelledby="dashboard-preview-title">
         <div className="section-heading dashboard-heading">
-          <div><span className="section-index">06 / PLANNING PREVIEW</span><h2 id="dashboard-preview-title">A clearer view<br /><em>of screening activity.</em></h2></div>
-          <p>A lightweight preview of the planning workspace. Live counts and district statistics will appear only when connected to verified project data.</p>
+          <div><span className="section-index">06 / DISTRICT RESOURCE PLANNING</span><h2 id="dashboard-preview-title">A clearer view<br /><em>of screening capacity.</em></h2></div>
+          <p>Explore the project's district-level screening demand, estimated capacity and priority geography using the supplied planning dataset and district boundaries.</p>
         </div>
         <div className="dashboard-preview-card">
           <div className="dashboard-preview-top">
-            <div><span className="panel-kicker">RETINASCOPE / INSIGHTS</span><h3>Screening overview</h3></div>
-            <DemoBadge />
+            <div><span className="panel-kicker">RETINASCOPE / DISTRICT PLANNING</span><h3>District screening capacity</h3></div>
+            <span className="planning-source-badge">PROJECT PLANNING DATA</span>
           </div>
-          <div className="dashboard-tabs" role="group" aria-label="Dashboard preview views">
-            <button id="dashboard-overview-tab" type="button" aria-pressed={dashboardTab === "overview"} className={dashboardTab === "overview" ? "dashboard-tab-active" : ""} onClick={() => setDashboardTab("overview")}>Overview</button>
-            <button id="dashboard-districts-tab" type="button" aria-pressed={dashboardTab === "districts"} className={dashboardTab === "districts" ? "dashboard-tab-active" : ""} onClick={() => setDashboardTab("districts")}>District planning</button>
-          </div>
-          {dashboardTab === "overview" ? (
-            <div className="dashboard-empty-grid" role="region" aria-labelledby="dashboard-overview-tab" aria-live="polite">
-              <div className="dashboard-stat"><span>Screenings reviewed</span><strong>—</strong><small>No live data connected</small></div>
-              <div className="dashboard-stat"><span>Awaiting review</span><strong>—</strong><small>No live data connected</small></div>
-              <div className="dashboard-stat"><span>District coverage</span><strong>—</strong><small>No live data connected</small></div>
-              <div className="dashboard-chart-empty">
-                <div className="dashboard-chart-heading">
-                  <span className="panel-kicker">GRADE DISTRIBUTION</span>
-                  <span className="dashboard-empty-badge">Awaiting verified data</span>
+          <div className="district-planning-view" role="region" aria-labelledby="dashboard-preview-title" aria-live="polite">
+            {planningLoading && <div className="district-empty-state"><span className="district-map-icon"><Icon name="map" size={25} /></span><div><strong>Loading district planning data</strong><p>Reading the project's planning dataset and district boundary file.</p></div></div>}
+            {planningError && <div className="district-empty-state planning-error-state"><span className="district-map-icon"><Icon name="info" size={25} /></span><div><strong>District planning data could not be loaded</strong><p>{planningError} Confirm that <code>public/data/district-planning.json</code> is present in the frontend project.</p></div></div>}
+            {planningAsset && !planningLoading && (
+              <>
+                <div className="planning-filter-grid">
+                  <label className="planning-filter-label">
+                    <span>State</span>
+                    <select className="planning-filter-select" value={selectedPlanningState} onChange={(event) => { setSelectedPlanningState(event.target.value); setSelectedPlanningDistrict(null); }}>
+                      <option value="All States">All States</option>
+                      {planningStates.map((state) => <option key={state} value={state}>{state}</option>)}
+                    </select>
+                  </label>
+                  <label className="planning-filter-label">
+                    <span>Priority</span>
+                    <select className="planning-filter-select" value={selectedPlanningPriority} onChange={(event) => { setSelectedPlanningPriority(event.target.value); setSelectedPlanningDistrict(null); }}>
+                      {PLANNING_PRIORITY_OPTIONS.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+                    </select>
+                  </label>
                 </div>
-                <div className="dashboard-chart-placeholder">
-                  <span className="dashboard-chart-icon"><Icon name="activity" size={21} /></span>
-                  <div>
-                    <strong>No verified screening records connected</strong>
-                    <p>Connect verified screening records to populate this chart. No sample distribution is shown.</p>
+
+                <div className="planning-kpi-grid">
+                  <div className="dashboard-stat"><span>Districts</span><strong>{formatPlanningNumber(planningMetrics.districts)}</strong><small>Matching selected filters</small></div>
+                  <div className="dashboard-stat"><span>Annual demand</span><strong>{formatPlanningNumber(planningMetrics.demand)}</strong><small>Estimated annual screening demand</small></div>
+                  <div className="dashboard-stat"><span>Capacity gap</span><strong>{formatPlanningNumber(planningMetrics.gap)}</strong><small>Estimated demand minus capacity</small></div>
+                  <div className="dashboard-stat"><span>High / critical</span><strong>{formatPlanningNumber(planningMetrics.highCritical)}</strong><small>Districts in selected view</small></div>
+                </div>
+
+                <div className="planning-panel-card">
+                  <div className="planning-panel-heading">
+                    <div><span className="panel-kicker">PRIORITY DISTRICTS</span><h4>District capacity overview</h4></div>
+                    <span className="planning-row-count">{formatPlanningNumber(planningRows.length)} records</span>
+                  </div>
+                  {planningRows.length ? (
+                    <div className="planning-table-scroll">
+                      <table className="planning-table">
+                        <thead><tr><th>State</th><th>District</th><th>Annual demand</th><th>Capacity</th><th>Capacity gap</th><th>Priority</th></tr></thead>
+                        <tbody>
+                          {planningRows.map((row) => {
+                            const rowId = `${row.state}::${row.district}`;
+                            return (
+                              <tr key={rowId} className={selectedPlanningDistrict === rowId ? "planning-row-selected" : ""} onClick={() => setSelectedPlanningDistrict(rowId)}>
+                                <td>{row.state}</td><td>{row.district}</td>
+                                <td className="planning-number-cell">{formatPlanningNumber(row.estimated_annual_screening_demand)}</td>
+                                <td className="planning-number-cell">{formatPlanningNumber(row.estimated_screening_capacity)}</td>
+                                <td className="planning-number-cell">{formatPlanningNumber(row.capacity_gap)}</td>
+                                <td><span className={`planning-priority-pill priority-${row.priority.toLowerCase()}`}>{row.priority}</span></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : <p className="planning-empty-result">No districts match the selected state and priority.</p>}
+                </div>
+
+                <div className="planning-panel-card planning-map-card">
+                  <div className="planning-panel-heading planning-map-heading">
+                    <div><span className="panel-kicker">DISTRICT CARTOGRAPHY</span><h4>{selectedPlanningState === "All States" ? "India district priority map" : `${selectedPlanningState} district priority map`}</h4></div>
+                    <div className="planning-map-legend" aria-label="Map priority legend">
+                      {["Low", "Moderate", "High", "Critical"].map((priority) => <span key={priority}><i style={{ backgroundColor: PLANNING_PRIORITY_COLOURS[priority] }} />{priority}</span>)}
+                    </div>
+                  </div>
+                  {planningMapFeatures.length ? (
+                    <div className="planning-map-viewport">
+                      <svg className="planning-map-svg" viewBox={planningMapViewBox} role="img" aria-label="District boundaries coloured by planning priority" preserveAspectRatio="xMidYMid meet">
+                        {planningMapFeatures.map((feature) => {
+                          const isPriorityMatch = selectedPlanningPriority === "All Priorities" || feature.priority === selectedPlanningPriority;
+                          const isSelected = selectedPlanningDistrict === `${feature.state}::${feature.district}`;
+                          return (
+                            <path
+                              key={feature.id}
+                              className={`planning-map-district ${isSelected ? "planning-map-district-selected" : ""}`}
+                              d={feature.path}
+                              fill={isPriorityMatch ? (PLANNING_PRIORITY_COLOURS[feature.priority] ?? "#9aa9a1") : "#a8b5ae"}
+                              fillOpacity={isPriorityMatch ? 0.96 : 0.16}
+                              stroke={isSelected ? "#ffffff" : "#263b4b"}
+                              strokeWidth={isSelected ? 1.35 : 0.42}
+                              vectorEffect="non-scaling-stroke"
+                              onClick={() => setSelectedPlanningDistrict(`${feature.state}::${feature.district}`)}
+                              tabIndex={0}
+                              role="button"
+                              aria-label={`${feature.district}, ${feature.state}; ${feature.priority} priority; capacity gap ${formatPlanningNumber(feature.capacityGap)}`}
+                              onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedPlanningDistrict(`${feature.state}::${feature.district}`); } }}
+                            >
+                              <title>{`${feature.district}, ${feature.state} · ${feature.priority} priority · Annual demand ${formatPlanningNumber(feature.demand)} · Capacity ${formatPlanningNumber(feature.capacity)} · Gap ${formatPlanningNumber(feature.capacityGap)}`}</title>
+                            </path>
+                          );
+                        })}
+                      </svg>
+                    </div>
+                  ) : (
+                    <div className="planning-map-unavailable"><Icon name="map" size={25} /><strong>No matching district boundaries</strong><p>The planning table still includes the source records, but this shapefile has no matching geometry for the selected state.</p></div>
+                  )}
+                  <div className="planning-map-footer">
+                    <span>{formatPlanningNumber(planningMapFeatures.length)} mapped boundaries / {formatPlanningNumber(planningStateRows.length)} planning records</span>
+                    <span>{selectedPlanningDistrict ? `Selected: ${selectedPlanningDistrict.split("::")[1]}` : "Select a district on the map or in the table"}</span>
                   </div>
                 </div>
-              </div>
-            </div>
-          ) : (
-            <div className="district-empty-state" role="region" aria-labelledby="dashboard-districts-tab" aria-live="polite"><span className="district-map-icon"><Icon name="map" size={25} /></span><div><strong>District data not connected</strong><p>District-level screening and resource planning should be populated from your team's verified dataset or backend response. No sample district counts are shown here.</p></div></div>
-          )}
-          <p className="dashboard-note"><Icon name="info" size={15} /> Illustrative dashboard layout — no patient, district or service-capacity data is displayed.</p>
+                <p className="planning-method-note">Planning estimates are derived from district-level Census 2011 population data; they are not observed healthcare-capacity statistics. Boundary matching follows the state/district name normalisation used in the original Streamlit app. {formatPlanningNumber(planningAsset.coverage.unmappedRecords)} planning records have no matching shape in the supplied boundary file; they remain in the table and totals but cannot be drawn on the map.</p>
+              </>
+            )}
+          </div>
         </div>
       </section>
 
